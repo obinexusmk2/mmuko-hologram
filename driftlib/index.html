@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MMUKO Fluid - Drift Theorem Sensory System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #0a0a0f;
+            color: #e0e0ff;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+        
+        #container {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+        }
+        
+        .panel {
+            flex: 1;
+            position: relative;
+            border: 2px solid #1a1a2e;
+        }
+        
+        #panel-left {
+            border-right: 1px solid #333;
+        }
+        
+        #panel-right {
+            border-left: 1px solid #333;
+        }
+        
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(10, 10, 15, 0.9);
+            padding: 15px;
+            border: 1px solid #333;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            max-width: 280px;
+        }
+        
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10, 10, 15, 0.95);
+            padding: 20px;
+            border: 1px solid #444;
+            border-radius: 8px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+        }
+        
+        input[type="range"] {
+            width: 120px;
+            accent-color: #ff6b35;
+        }
+        
+        button {
+            background: #1a1a2e;
+            color: #e0e0ff;
+            border: 1px solid #444;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s;
+        }
+        
+        button:hover {
+            background: #2a2a4e;
+            border-color: #ff6b35;
+        }
+        
+        button.active {
+            background: #ff6b35;
+            color: #000;
+        }
+        
+        .state-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .drift-red { background: #ff3700; }
+        .drift-blue { background: #0066ff; }
+        .drift-green { background: #50ff28; }
+        .drift-orange { background: #ffa500; }
+        .drift-yellow { background: #ffff00; }
+        
+        .title-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(90deg, #1a1a2e, #0a0a0f);
+            padding: 8px 15px;
+            font-size: 14px;
+            font-weight: bold;
+            border-bottom: 1px solid #333;
+            z-index: 10;
+        }
+        
+        .boot-log {
+            position: absolute;
+            top: 40px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            font-size: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            width: 200px;
+            border: 1px solid #333;
+        }
+        
+        .boot-line {
+            margin: 2px 0;
+            opacity: 0;
+            animation: fadeIn 0.5s forwards;
+        }
+        
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+        
+        .vector-info {
+            position: absolute;
+            bottom: 100px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            font-size: 11px;
+            border: 1px solid #333;
+        }
+        
+        .crosshair {
+            position: absolute;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <!-- Left Panel: 2D Vector Field -->
+        <div class="panel" id="panel-left">
+            <div class="title-bar">2D DRIFT FIELD | Observer: <span id="obs-2d">ALPHA</span></div>
+            <canvas id="canvas2d"></canvas>
+            <div class="overlay">
+                <div><span class="state-indicator drift-red"></span>RED: Moving Away</div>
+                <div><span class="state-indicator drift-blue"></span>BLUE: Orthogonal (90°)</div>
+                <div><span class="state-indicator drift-green"></span>GREEN: Approaching</div>
+                <div><span class="state-indicator drift-orange"></span>ORANGE: Static</div>
+                <div><span class="state-indicator drift-yellow"></span>YELLOW: Transition</div>
+                <br>
+                <div>u = ⟨8, 5⟩ | v = ⟨-9, 9⟩</div>
+                <div>u × v = <span id="cross-product">0</span></div>
+                <div>Rotation: <span id="rotation-2d">0°</span></div>
+            </div>
+            <div class="vector-info">
+                <div>Target: <span id="target-2d">NONE</span></div>
+                <div>Lock Status: <span id="lock-2d">SEARCHING</span></div>
+                <div>Drift State: <span id="state-2d">ORANGE</span></div>
+            </div>
+        </div>
+
+        <!-- Right Panel: 3D Surface -->
+        <div class="panel" id="panel-right">
+            <div class="title-bar">3D ℝ³ SURFACE | Observer: <span id="obs-3d">BETA</span></div>
+            <canvas id="canvas3d"></canvas>
+            <div class="overlay">
+                <div>z = g(x,y) Parameterization</div>
+                <div>Surface: <span id="surface-eq">z = sin(x)cos(y)</span></div>
+                <br>
+                <div>MMUKO Boot Status:</div>
+                <div id="boot-status">INITIALIZING...</div>
+            </div>
+            <div class="boot-log" id="boot-log"></div>
+        </div>
+    </div>
+
+    <!-- Global Controls -->
+    <div class="controls">
+        <div class="control-group">
+            <label>Rotation Speed</label>
+            <input type="range" id="speed" min="0" max="100" value="20">
+        </div>
+        <div class="control-group">
+            <label>Drift Threshold</label>
+            <input type="range" id="threshold" min="1" max="50" value="15">
+        </div>
+        <div class="control-group">
+            <label>Zoom Level</label>
+            <input type="range" id="zoom" min="50" max="200" value="100">
+        </div>
+        <button id="switch-obs">Switch Observer</button>
+        <button id="reset-rot">Reset Rotation</button>
+        <button id="pause-btn">Pause</button>
+    </div>
+
+    <script>
+        // ============================================================
+        // MMUKO BOOT SEQUENCE IMPLEMENTATION
+        // ============================================================
+        
+        const MMUKO = {
+            version: "0.1-constitutional",
+            bootComplete: false,
+            phase: 0,
+            gravity: { vacuum: 9.8, lepton: 0.98, muon: 0.098, deep: 0.0098 },
+            directions: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'],
+            spinValues: [Math.PI/4, Math.PI/3, Math.PI/2, Math.PI, Math.PI*2, Math.PI/2, Math.PI/3, Math.PI/4],
+            
+            bootLog: [],
+            
+            log: function(msg) {
+                this.bootLog.push(`[PHASE ${this.phase}] ${msg}`);
+                this.updateBootDisplay();
+            },
+            
+            updateBootDisplay: function() {
+                const logEl = document.getElementById('boot-log');
+                const statusEl = document.getElementById('boot-status');
+                if (logEl) {
+                    logEl.innerHTML = this.bootLog.slice(-10).map((line, i) => 
+                        `<div class="boot-line" style="animation-delay: ${i * 0.1}s">${line}</div>`
+                    ).join('');
+                }
+                if (statusEl) {
+                    statusEl.textContent = this.bootComplete ? 'COMPLETE' : `PHASE ${this.phase}`;
+                    statusEl.style.color = this.bootComplete ? '#50ff28' : '#ffa500';
+                }
+            },
+            
+            init: function() {
+                this.phase = 0;
+                this.log('Vacuum medium initialized: G=9.8000');
+                
+                setTimeout(() => {
+                    this.phase = 1;
+                    this.log('Cubit rings initialized: 16 bytes');
+                }, 500);
+                
+                setTimeout(() => {
+                    this.phase = 2;
+                    this.log('Compass alignment: All cubits oriented');
+                }, 1000);
+                
+                setTimeout(() => {
+                    this.phase = 3;
+                    this.log('Superposition entanglement: Pairs resolved');
+                }, 1500);
+                
+                setTimeout(() => {
+                    this.phase = 4;
+                    this.log('Frame of reference: NORTH centered');
+                }, 2000);
+                
+                setTimeout(() => {
+                    this.phase = 5;
+                    this.log('Nonlinear resolution: Diamond table traversed');
+                }, 2500);
+                
+                setTimeout(() => {
+                    this.phase = 6;
+                    this.log('Rotation verification: 360° freedom confirmed');
+                }, 3000);
+                
+                setTimeout(() => {
+                    this.phase = 7;
+                    this.log('MMUKO BOOT COMPLETE - No lock detected');
+                    this.bootComplete = true;
+                }, 3500);
+            }
+        };
+
+        // ============================================================
+        // DRIFT THEOREM CORE
+        // ============================================================
+        
+        const DriftSystem = {
+            // Vectors
+            u: { x: 8, y: 5, z: 0 },
+            v: { x: -9, y: 9, z: 0 },
+            
+            // Cross product u × v
+            cross: { x: 0, y: 0, z: 0 },
+            
+            // Rotation state
+            rotation2D: 0,
+            rotation3D: 0,
+            targetRotation: 0,
+            
+            // Observer state
+            currentObserver: 0, // 0 = ALPHA, 1 = BETA
+            observers: ['ALPHA', 'BETA'],
+            
+            // Target tracking
+            target2D: null,
+            target3D: null,
+            locked: false,
+            
+            // Drift states
+            states: {
+                RED: { r: 255, g: 55, b: 0, name: 'RED (AWAY)' },
+                BLUE: { r: 0, g: 102, b: 255, name: 'BLUE (ORTHOGONAL)' },
+                GREEN: { r: 80, g: 255, b: 40, name: 'GREEN (APPROACH)' },
+                ORANGE: { r: 255, g: 165, b: 0, name: 'ORANGE (STATIC)' },
+                YELLOW: { r: 255, g: 255, b: 0, name: 'YELLOW (TRANSITION)' }
+            },
+            
+            currentState: 'ORANGE',
+            transitionProgress: 0,
+            
+            calculateCross: function() {
+                // u × v = (uy*vz - uz*vy, uz*vx - ux*vz, ux*vy - uy*vx)
+                this.cross.x = this.u.y * this.v.z - this.u.z * this.v.y;
+                this.cross.y = this.u.z * this.v.x - this.u.x * this.v.z;
+                this.cross.z = this.u.x * this.v.y - this.u.y * this.v.x;
+                return this.cross.z; // 2D cross product (z-component only)
+            },
+            
+            rotateVector: function(vec, angle, axis = 'z') {
+                const rad = angle * Math.PI / 180;
+                const cos = Math.cos(rad);
+                const sin = Math.sin(rad);
+                
+                if (axis === 'z') {
+                    return {
+                        x: vec.x * cos - vec.y * sin,
+                        y: vec.x * sin + vec.y * cos,
+                        z: vec.z
+                    };
+                } else if (axis === 'x') {
+                    return {
+                        x: vec.x,
+                        y: vec.y * cos - vec.z * sin,
+                        z: vec.y * sin + vec.z * cos
+                    };
+                } else if (axis === 'y') {
+                    return {
+                        x: vec.x * cos + vec.z * sin,
+                        y: vec.y,
+                        z: -vec.x * sin + vec.z * cos
+                    };
+                }
+                return vec;
+            },
+            
+            // Double anticlockwise rotation (720° total)
+            rotateDoubleAnticlockwise: function() {
+                this.targetRotation += 720;
+            },
+            
+            classifyDrift: function(vToward, vOrtho, threshold) {
+                const speedAway = -vToward;
+                
+                // Transition logic: YELLOW -> ORANGE -> [RED/BLUE/GREEN]
+                if (Math.abs(vOrtho) > threshold && Math.abs(vOrtho) > Math.abs(vToward)) {
+                    this.transitionProgress = Math.min(1, this.transitionProgress + 0.1);
+                    if (this.transitionProgress > 0.5) return 'BLUE';
+                    return 'YELLOW';
+                }
+                
+                if (speedAway > threshold) {
+                    this.transitionProgress = Math.min(1, this.transitionProgress + 0.1);
+                    if (this.transitionProgress > 0.5) return 'RED';
+                    return 'YELLOW';
+                }
+                
+                if (vToward > threshold) {
+                    this.transitionProgress = Math.min(1, this.transitionProgress + 0.1);
+                    if (this.transitionProgress > 0.5) return 'GREEN';
+                    return 'YELLOW';
+                }
+                
+                if (Math.abs(vToward) < threshold && Math.abs(vOrtho) < threshold) {
+                    this.transitionProgress = Math.max(0, this.transitionProgress - 0.1);
+                    return 'ORANGE';
+                }
+                
+                return 'YELLOW';
+            },
+            
+            switchObserver: function() {
+                this.currentObserver = 1 - this.currentObserver;
+                this.transitionProgress = 0;
+                return this.observers[this.currentObserver];
+            }
+        };
+
+        // ============================================================
+        // 2D CANVAS RENDERER
+        // ============================================================
+        
+        const Canvas2D = {
+            canvas: null,
+            ctx: null,
+            width: 0,
+            height: 0,
+            centerX: 0,
+            centerY: 0,
+            scale: 1,
+            
+            particles: [],
+            
+            init: function() {
+                this.canvas = document.getElementById('canvas2d');
+                this.ctx = this.canvas.getContext('2d');
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+                
+                // Initialize particles for drift visualization
+                for (let i = 0; i < 50; i++) {
+                    this.particles.push({
+                        x: Math.random() * this.width,
+                        y: Math.random() * this.height,
+                        vx: 0, vy: 0,
+                        history: []
+                    });
+                }
+                
+                // Click to lock target
+                this.canvas.addEventListener('click', (e) => this.onClick(e));
+            },
+            
+            resize: function() {
+                const rect = this.canvas.parentElement.getBoundingClientRect();
+                this.canvas.width = rect.width;
+                this.canvas.height = rect.height;
+                this.width = rect.width;
+                this.height = rect.height;
+                this.centerX = this.width / 2;
+                this.centerY = this.height / 2;
+            },
+            
+            onClick: function(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                DriftSystem.target2D = { x, y };
+                DriftSystem.locked = true;
+                
+                document.getElementById('target-2d').textContent = `(${Math.round(x)}, ${Math.round(y)})`;
+                document.getElementById('lock-2d').textContent = 'LOCKED';
+                document.getElementById('lock-2d').style.color = '#50ff28';
+            },
+            
+            drawGrid: function() {
+                const ctx = this.ctx;
+                ctx.strokeStyle = '#1a1a2e';
+                ctx.lineWidth = 1;
+                
+                const gridSize = 50 * DriftSystem.u.x / 8;
+                
+                for (let x = 0; x < this.width; x += gridSize) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, this.height);
+                    ctx.stroke();
+                }
+                
+                for (let y = 0; y < this.height; y += gridSize) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(this.width, y);
+                    ctx.stroke();
+                }
+            },
+            
+            drawAxes: function() {
+                const ctx = this.ctx;
+                ctx.strokeStyle = '#444';
+                ctx.lineWidth = 2;
+                
+                // X axis
+                ctx.beginPath();
+                ctx.moveTo(0, this.centerY);
+                ctx.lineTo(this.width, this.centerY);
+                ctx.stroke();
+                
+                // Y axis
+                ctx.beginPath();
+                ctx.moveTo(this.centerX, 0);
+                ctx.lineTo(this.centerX, this.height);
+                ctx.stroke();
+            },
+            
+            drawVector: function(vec, color, label, width = 3) {
+                const ctx = this.ctx;
+                const scale = document.getElementById('zoom').value / 100 * 5;
+                
+                const endX = this.centerX + vec.x * scale;
+                const endY = this.centerY - vec.y * scale;
+                
+                // Vector line
+                ctx.strokeStyle = color;
+                ctx.lineWidth = width;
+                ctx.beginPath();
+                ctx.moveTo(this.centerX, this.centerY);
+                ctx.lineTo(endX, endY);
+                ctx.stroke();
+                
+                // Arrowhead
+                const angle = Math.atan2(-vec.y, vec.x);
+                const headLen = 15;
+                ctx.beginPath();
+                ctx.moveTo(endX, endY);
+                ctx.lineTo(endX - headLen * Math.cos(angle - Math.PI/6), endY + headLen * Math.sin(angle - Math.PI/6));
+                ctx.lineTo(endX - headLen * Math.cos(angle + Math.PI/6), endY + headLen * Math.sin(angle + Math.PI/6));
+                ctx.closePath();
+                ctx.fillStyle = color;
+                ctx.fill();
+                
+                // Label
+                ctx.fillStyle = '#fff';
+                ctx.font = '12px Courier New';
+                ctx.fillText(label, endX + 10, endY);
+            },
+            
+            drawCrossProduct: function() {
+                const ctx = this.ctx;
+                const cross = DriftSystem.cross;
+                const magnitude = Math.abs(cross.z);
+                const direction = cross.z > 0 ? 1 : -1;
+                
+                // Visualize cross product as circle at origin
+                const radius = Math.min(magnitude * 2, 100);
+                const state = DriftSystem.states[DriftSystem.currentState];
+                
+                ctx.beginPath();
+                ctx.arc(this.centerX, this.centerY, radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${state.r}, ${state.g}, ${state.b}, 0.2)`;
+                ctx.fill();
+                ctx.strokeStyle = `rgb(${state.r}, ${state.g}, ${state.b})`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // Rotation indicator
+                ctx.beginPath();
+                ctx.arc(this.centerX, this.centerY, radius + 10, 0, (DriftSystem.rotation2D % 360) * Math.PI / 180);
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            },
+            
+            drawParticles: function() {
+                const ctx = this.ctx;
+                const threshold = document.getElementById('threshold').value / 10;
+                
+                this.particles.forEach(p => {
+                    if (!DriftSystem.target2D) return;
+                    
+                    // Calculate drift relative to target
+                    const dx = DriftSystem.target2D.x - p.x;
+                    const dy = DriftSystem.target2D.y - p.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist > 0) {
+                        const toward = (dx * p.vx + dy * p.vy) / dist;
+                        const ortho = Math.abs(dx * p.vy - dy * p.vx) / dist;
+                        
+                        const state = DriftSystem.classifyDrift(toward, ortho, threshold);
+                        const color = DriftSystem.states[state];
+                        
+                        ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                        ctx.fill();
+                        
+                        // Trail
+                        ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, 0.3)`;
+                        ctx.beginPath();
+                        p.history.forEach((h, i) => {
+                            if (i === 0) ctx.moveTo(h.x, h.y);
+                            else ctx.lineTo(h.x, h.y);
+                        });
+                        ctx.stroke();
+                    }
+                    
+                    // Update particle
+                    p.vx += (Math.random() - 0.5) * 0.5;
+                    p.vy += (Math.random() - 0.5) * 0.5;
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    
+                    p.history.push({ x: p.x, y: p.y });
+                    if (p.history.length > 20) p.history.shift();
+                    
+                    // Wrap around
+                    if (p.x < 0) p.x = this.width;
+                    if (p.x > this.width) p.x = 0;
+                    if (p.y < 0) p.y = this.height;
+                    if (p.y > this.height) p.y = 0;
+                });
+            },
+            
+            drawTarget: function() {
+                if (!DriftSystem.target2D) return;
+                
+                const ctx = this.ctx;
+                const t = DriftSystem.target2D;
+                const pulse = Math.sin(Date.now() / 200) * 5;
+                
+                // Crosshair
+                ctx.strokeStyle = '#0f0';
+                ctx.lineWidth = 2;
+                
+                ctx.beginPath();
+                ctx.moveTo(t.x - 20 - pulse, t.y);
+                ctx.lineTo(t.x - 10, t.y);
+                ctx.moveTo(t.x + 10, t.y);
+                ctx.lineTo(t.x + 20 + pulse, t.y);
+                ctx.moveTo(t.x, t.y - 20 - pulse);
+                ctx.lineTo(t.x, t.y - 10);
+                ctx.moveTo(t.x, t.y + 10);
+                ctx.lineTo(t.x, t.y + 20 + pulse);
+                ctx.stroke();
+                
+                // Lock ring
+                ctx.beginPath();
+                ctx.arc(t.x, t.y, 30 + pulse, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
+                ctx.stroke();
+            },
+            
+            render: function() {
+                const ctx = this.ctx;
+                ctx.fillStyle = '#0a0a0f';
+                ctx.fillRect(0, 0, this.width, this.height);
+                
+                this.drawGrid();
+                this.drawAxes();
+                
+                // Apply rotation
+                const speed = document.getElementById('speed').value / 100;
+                if (DriftSystem.rotation2D < DriftSystem.targetRotation) {
+                    DriftSystem.rotation2D += speed * 5;
+                }
+                
+                // Rotate vectors
+                const angle = DriftSystem.rotation2D;
+                const uRot = DriftSystem.rotateVector(DriftSystem.u, angle, 'z');
+                const vRot = DriftSystem.rotateVector(DriftSystem.v, angle, 'z');
+                
+                // Recalculate cross product
+                DriftSystem.u = uRot;
+                DriftSystem.v = vRot;
+                const crossZ = DriftSystem.calculateCross();
+                
+                // Update UI
+                document.getElementById('cross-product').textContent = crossZ.toFixed(2);
+                document.getElementById('rotation-2d').textContent = Math.round(angle % 360) + '°';
+                
+                // Determine drift state based on cross product change
+                const threshold = document.getElementById('threshold').value / 10;
+                const dCross = crossZ - (this.lastCross || 0);
+                this.lastCross = crossZ;
+                
+                DriftSystem.currentState = DriftSystem.classifyDrift(-dCross, Math.abs(dCross) * 0.5, threshold);
+                document.getElementById('state-2d').textContent = DriftSystem.currentState;
+                document.getElementById('state-2d').style.color = `rgb(${DriftSystem.states[DriftSystem.currentState].r}, ${DriftSystem.states[DriftSystem.currentState].g}, ${DriftSystem.states[DriftSystem.currentState].b})`;
+                
+                // Draw vectors with tripartite colors
+                this.drawVector(uRot, '#ff6b35', 'u', 4);
+                this.drawVector(vRot, '#4ecdc4', 'v', 4);
+                this.drawCrossProduct();
+                
+                this.drawParticles();
+                this.drawTarget();
+                
+                // Observer label
+                document.getElementById('obs-2d').textContent = DriftSystem.observers[DriftSystem.currentObserver];
+            }
+        };
+
+        // ============================================================
+        // 3D CANVAS RENDERER
+        // ============================================================
+        
+        const Canvas3D = {
+            canvas: null,
+            ctx: null,
+            width: 0,
+            height: 0,
+            
+            // 3D parameters
+            rotX: 0,
+            rotY: 0,
+            rotZ: 0,
+            points: [],
+            
+            init: function() {
+                this.canvas = document.getElementById('canvas3d');
+                this.ctx = this.canvas.getContext('2d');
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+                
+                // Generate surface points z = g(x,y)
+                this.generateSurface();
+                
+                // Click to set target
+                this.canvas.addEventListener('click', (e) => this.onClick(e));
+            },
+            
+            resize: function() {
+                const rect = this.canvas.parentElement.getBoundingClientRect();
+                this.canvas.width = rect.width;
+                this.canvas.height = rect.height;
+                this.width = rect.width;
+                this.height = rect.height;
+            },
+            
+            generateSurface: function() {
+                this.points = [];
+                const resolution = 30;
+                const scale = 100;
+                
+                for (let i = 0; i <= resolution; i++) {
+                    for (let j = 0; j <= resolution; j++) {
+                        const u = (i / resolution) * Math.PI * 2 - Math.PI;
+                        const v = (j / resolution) * Math.PI * 2 - Math.PI;
+                        
+                        // Parametric surface: z = g(x,y) with drift influence
+                        const x = u * scale / 2;
+                        const y = v * scale / 2;
+                        const z = Math.sin(u) * Math.cos(v) * scale * 0.5 + 
+                                  (DriftSystem.cross.z / 100) * Math.sin(u * 2) * 20;
+                        
+                        this.points.push({ x, y, z, u, v });
+                    }
+                }
+            },
+            
+            onClick: function(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                DriftSystem.target3D = {
+                    x: e.clientX - rect.left - this.width/2,
+                    y: e.clientY - rect.top - this.height/2
+                };
+            },
+            
+            project: function(x, y, z) {
+                // Apply rotations
+                const cx = Math.cos(this.rotX), sx = Math.sin(this.rotX);
+                const cy = Math.cos(this.rotY), sy = Math.sin(this.rotY);
+                const cz = Math.cos(this.rotZ), sz = Math.sin(this.rotZ);
+                
+                // Rotate around Y
+                let x1 = x * cy - z * sy;
+                let z1 = x * sy + z * cy;
+                
+                // Rotate around X
+                let y2 = y * cx - z1 * sx;
+                let z2 = y * sx + z1 * cx;
+                
+                // Rotate around Z
+                let x3 = x1 * cz - y2 * sz;
+                let y3 = x1 * sz + y2 * cz;
+                
+                // Perspective projection
+                const zoom = document.getElementById('zoom').value / 100;
+                const distance = 400;
+                const scale = (distance / (distance + z2)) * zoom;
+                
+                return {
+                    x: this.width/2 + x3 * scale,
+                    y: this.height/2 + y3 * scale,
+                    scale: scale,
+                    z: z2
+                };
+            },
+            
+            drawSurface: function() {
+                const ctx = this.ctx;
+                const resolution = 30;
+                
+                // Sort points by Z for proper depth
+                const projected = this.points.map(p => ({
+                    ...p,
+                    proj: this.project(p.x, p.y, p.z)
+                })).sort((a, b) => b.proj.z - a.proj.z);
+                
+                // Draw surface with drift coloring
+                for (let i = 0; i < projected.length - 1; i++) {
+                    const p = projected[i];
+                    const state = this.getPointState(p);
+                    const color = DriftSystem.states[state];
+                    
+                    const alpha = Math.min(1, (p.proj.z + 100) / 200);
+                    
+                    ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha * 0.6})`;
+                    ctx.beginPath();
+                    ctx.arc(p.proj.x, p.proj.y, 3 * p.proj.scale, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                
+                // Draw grid lines
+                ctx.strokeStyle = 'rgba(100, 100, 150, 0.3)';
+                ctx.lineWidth = 1;
+                
+                for (let i = 0; i <= resolution; i++) {
+                    ctx.beginPath();
+                    for (let j = 0; j <= resolution; j++) {
+                        const idx = i * (resolution + 1) + j;
+                        if (projected[idx]) {
+                            const p = projected[idx].proj;
+                            if (j === 0) ctx.moveTo(p.x, p.y);
+                            else ctx.lineTo(p.x, p.y);
+                        }
+                    }
+                    ctx.stroke();
+                }
+            },
+            
+            getPointState: function(p) {
+                // Determine drift state based on surface gradient and position
+                const threshold = document.getElementById('threshold').value / 10;
+                const gradient = Math.cos(p.u) * Math.sin(p.v);
+                const toward = -gradient * 10;
+                const ortho = Math.abs(Math.sin(p.u * 2)) * 5;
+                
+                return DriftSystem.classifyDrift(toward, ortho, threshold);
+            },
+            
+            drawAxes3D: function() {
+                const ctx = this.ctx;
+                const axisLength = 150;
+                
+                // X axis (RED)
+                const xEnd = this.project(axisLength, 0, 0);
+                ctx.strokeStyle = '#ff3700';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(this.width/2, this.height/2);
+                ctx.lineTo(xEnd.x, xEnd.y);
+                ctx.stroke();
+                ctx.fillStyle = '#ff3700';
+                ctx.fillText('X', xEnd.x + 10, xEnd.y);
+                
+                // Y axis (GREEN)
+                const yEnd = this.project(0, axisLength, 0);
+                ctx.strokeStyle = '#50ff28';
+                ctx.beginPath();
+                ctx.moveTo(this.width/2, this.height/2);
+                ctx.lineTo(yEnd.x, yEnd.y);
+                ctx.stroke();
+                ctx.fillStyle = '#50ff28';
+                ctx.fillText('Y', yEnd.x + 10, yEnd.y);
+                
+                // Z axis (BLUE)
+                const zEnd = this.project(0, 0, axisLength);
+                ctx.strokeStyle = '#0066ff';
+                ctx.beginPath();
+                ctx.moveTo(this.width/2, this.height/2);
+                ctx.lineTo(zEnd.x, zEnd.y);
+                ctx.stroke();
+                ctx.fillStyle = '#0066ff';
+                ctx.fillText('Z', zEnd.x + 10, zEnd.y);
+            },
+            
+            drawVectors: function() {
+                const ctx = this.ctx;
+                const scale = 20;
+                
+                // Draw u and v in 3D
+                const u3D = DriftSystem.rotateVector(DriftSystem.u, this.rotZ * 180 / Math.PI, 'z');
+                const v3D = DriftSystem.rotateVector(DriftSystem.v, this.rotZ * 180 / Math.PI, 'z');
+                
+                const uProj = this.project(u3D.x * scale, u3D.y * scale, 0);
+                const vProj = this.project(v3D.x * scale, v3D.y * scale, DriftSystem.cross.z * scale / 10);
+                
+                // u vector
+                ctx.strokeStyle = '#ff6b35';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.moveTo(this.width/2, this.height/2);
+                ctx.lineTo(uProj.x, uProj.y);
+                ctx.stroke();
+                
+                // v vector
+                ctx.strokeStyle = '#4ecdc4';
+                ctx.beginPath();
+                ctx.moveTo(this.width/2, this.height/2);
+                ctx.lineTo(vProj.x, vProj.y);
+                ctx.stroke();
+                
+                // Cross product vector (vertical)
+                const crossProj = this.project(0, 0, DriftSystem.cross.z * scale / 5);
+                ctx.strokeStyle = `rgb(${DriftSystem.states[DriftSystem.currentState].r}, ${DriftSystem.states[DriftSystem.currentState].g}, ${DriftSystem.states[DriftSystem.currentState].b})`;
+                ctx.lineWidth = 5;
+                ctx.beginPath();
+                ctx.moveTo(this.width/2, this.height/2);
+                ctx.lineTo(crossProj.x, crossProj.y);
+                ctx.stroke();
+            },
+            
+            render: function() {
+                const ctx = this.ctx;
+                ctx.fillStyle = '#0a0a0f';
+                ctx.fillRect(0, 0, this.width, this.height);
+                
+                // Update rotation
+                const speed = document.getElementById('speed').value / 1000;
+                this.rotY += speed;
+                this.rotX = Math.sin(Date.now() / 2000) * 0.3;
+                
+                // Double anticlockwise rotation of dimension
+                if (MMUKO.bootComplete) {
+                    this.rotZ += speed * 2;
+                }
+                
+                this.drawSurface();
+                this.drawAxes3D();
+                this.drawVectors();
+                
+                // Observer label
+                document.getElementById('obs-3d').textContent = DriftSystem.observers[1 - DriftSystem.currentObserver];
+            }
+        };
+
+        // ============================================================
+        // MAIN LOOP
+        // ============================================================
+        
+        let paused = false;
+        
+        function animate() {
+            if (!paused) {
+                Canvas2D.render();
+                Canvas3D.render();
+            }
+            requestAnimationFrame(animate);
+        }
+        
+        // Initialize
+        window.onload = function() {
+            MMUKO.init();
+            Canvas2D.init();
+            Canvas3D.init();
+            
+            // Controls
+            document.getElementById('switch-obs').addEventListener('click', () => {
+                const obs = DriftSystem.switchObserver();
+                document.getElementById('switch-obs').textContent = `Observer: ${obs}`;
+                
+                // Trigger double rotation on switch
+                DriftSystem.rotateDoubleAnticlockwise();
+            });
+            
+            document.getElementById('reset-rot').addEventListener('click', () => {
+                DriftSystem.rotation2D = 0;
+                DriftSystem.targetRotation = 0;
+                Canvas3D.rotX = 0;
+                Canvas3D.rotY = 0;
+                Canvas3D.rotZ = 0;
+            });
+            
+            document.getElementById('pause-btn').addEventListener('click', () => {
+                paused = !paused;
+                document.getElementById('pause-btn').textContent = paused ? 'Resume' : 'Pause';
+                document.getElementById('pause-btn').classList.toggle('active');
+            });
+            
+            // Start animation
+            animate();
+        };
+    </script>
+</body>
+</html>
