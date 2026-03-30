@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MMUKO Holographic Interface · Trilateral Consensus</title>
+<style>
+/* ── reset ──────────────────────────────────────────────────── */
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; background:#000; }
+body { font-family:'Courier New', monospace; color:#0ff; }
+
+/* ── layered canvas stack ────────────────────────────────────── */
+#scene {
+  position:relative;
+  width:100vw; height:100vh;
+  overflow:hidden;
+}
+#scene canvas {
+  position:absolute;
+  top:0; left:0;
+  width:100%; height:100%;
+}
+#c-bg     { z-index:1; }
+#c-mid    { z-index:2; }
+#c-fg     { z-index:3; }
+#c-cobweb { z-index:4; }
+#c-hud    { z-index:5; pointer-events:none; }
+
+/* ── HUD panels ──────────────────────────────────────────────── */
+.hud-panel {
+  position:fixed; z-index:20;
+  background:rgba(0,10,20,0.75);
+  border:1px solid rgba(0,255,255,0.25);
+  padding:7px 9px;
+  font-size:10px; line-height:1.5;
+  pointer-events:none;
+  backdrop-filter:blur(2px);
+}
+.hud-title {
+  font-size:9px; letter-spacing:3px;
+  text-transform:uppercase; color:#0ff;
+  margin-bottom:4px; opacity:.7;
+}
+
+/* top-left: boot + cubit ring + lattice */
+#panel-left  { top:10px; left:10px; width:196px; }
+#panel-left canvas { display:block; margin-top:4px; }
+
+/* top-center: trilateral rings */
+#panel-center { top:10px; left:50%; transform:translateX(-50%); width:210px; }
+
+/* right: directional compass */
+#panel-right { top:50%; right:10px; transform:translateY(-50%); width:130px; }
+
+/* bottom-left: boot log */
+#boot-log {
+  position:fixed; bottom:8px; left:8px; z-index:20;
+  width:420px; max-height:110px; overflow-y:auto;
+  font-size:9px; color:#0f8; line-height:1.4;
+  background:rgba(0,0,0,0.6);
+  border:1px solid rgba(0,200,80,0.2);
+  padding:5px 7px;
+  pointer-events:none;
+}
+
+/* bottom-right: camera feed */
+#cam-wrap {
+  position:fixed; bottom:8px; right:8px; z-index:20;
+  width:160px; height:120px;
+  border:1px solid rgba(0,255,80,0.4);
+  background:#000; overflow:hidden;
+}
+#cam-img { width:100%; height:100%; object-fit:cover; display:block; }
+#cam-label {
+  position:absolute; top:3px; left:4px;
+  font-size:8px; color:#0f0;
+  background:rgba(0,0,0,0.55); padding:1px 4px;
+}
+#cam-synth {
+  position:absolute; bottom:3px; right:4px;
+  font-size:7px; color:#ff0; display:none;
+}
+
+/* tripartite bars */
+#tri-bars {
+  position:fixed; top:50%; right:10px; transform:translateY(-50%);
+  z-index:20; width:130px;
+  display:flex; flex-direction:column; gap:5px;
+  pointer-events:none;
+}
+.tbar { display:flex; align-items:center; gap:5px; font-size:9px; }
+.tbar-track {
+  flex:1; height:7px;
+  background:rgba(255,255,255,0.07);
+  border:1px solid rgba(255,255,255,0.15); overflow:hidden;
+}
+.tbar-fill { height:100%; width:0%; transition:width 80ms linear; }
+
+/* controls hint */
+#hint {
+  position:fixed; top:10px; right:10px; z-index:20;
+  font-size:9px; color:rgba(0,255,255,0.4);
+  text-align:right; pointer-events:none;
+}
+
+/* scanline flicker overlay */
+#scanlines {
+  position:fixed; inset:0; z-index:30;
+  pointer-events:none;
+  background:repeating-linear-gradient(
+    to bottom,
+    transparent 0px, transparent 2px,
+    rgba(0,0,0,0.06) 2px, rgba(0,0,0,0.06) 4px
+  );
+}
+</style>
+</head>
+<body>
+
+<!-- ── scene (layered canvases) ────────────────────────────── -->
+<div id="scene">
+  <canvas id="c-bg"></canvas>
+  <canvas id="c-mid"></canvas>
+  <canvas id="c-fg"></canvas>
+  <canvas id="c-cobweb"></canvas>
+  <canvas id="c-hud"></canvas>
+</div>
+
+<!-- ── HUD: left panel ─────────────────────────────────────── -->
+<div class="hud-panel" id="panel-left">
+  <div class="hud-title">⬡ MMUKO System</div>
+  <div>STATUS: <span id="boot-status" style="color:#ff0">INIT</span></div>
+  <div style="margin-top:3px" class="hud-title">◈ Cubit Ring</div>
+  <canvas id="c-cubit" width="178" height="90"></canvas>
+  <div style="margin-top:5px" class="hud-title">◆ Lattice L₂</div>
+  <canvas id="c-lattice" width="178" height="110"></canvas>
+  <div style="margin-top:4px">
+    WORLD X: <span id="world-x">0</span><br>
+    NODE: <span id="lattice-node" style="color:#ff0">--</span>
+  </div>
+</div>
+
+<!-- ── HUD: center panel (trilateral) ──────────────────────── -->
+<div class="hud-panel" id="panel-center">
+  <div class="hud-title">◎ Trilateral Consensus</div>
+  <canvas id="c-tri" width="192" height="80"></canvas>
+  <div style="margin-top:3px">
+    PRI: <span id="dir-pri" style="color:#0ff">--</span> &nbsp;
+    SEC: <span id="dir-sec" style="color:#f0f">--</span>
+  </div>
+</div>
+
+<!-- ── tripartite bars (right side) ────────────────────────── -->
+<div id="tri-bars">
+  <div class="tbar">
+    <span style="color:#f44;width:30px">L·R</span>
+    <div class="tbar-track"><div class="tbar-fill" id="bar-lr" style="background:#f44"></div></div>
+  </div>
+  <div class="tbar">
+    <span style="color:#4f4;width:30px">C·G</span>
+    <div class="tbar-track"><div class="tbar-fill" id="bar-cg" style="background:#4f4"></div></div>
+  </div>
+  <div class="tbar">
+    <span style="color:#44f;width:30px">R·B</span>
+    <div class="tbar-track"><div class="tbar-fill" id="bar-rb" style="background:#44f"></div></div>
+  </div>
+  <div class="tbar" style="margin-top:6px">
+    <span style="color:#888;width:30px">BYTE</span>
+    <span id="bar-byte" style="color:#ff0;font-size:9px">0x00</span>
+  </div>
+</div>
+
+<!-- ── camera feed ─────────────────────────────────────────── -->
+<div id="cam-wrap">
+  <img id="cam-img" src="" alt="">
+  <div id="cam-label">MMUKO·CAM</div>
+  <div id="cam-synth">SYNTHETIC</div>
+</div>
+
+<!-- ── boot log ────────────────────────────────────────────── -->
+<div id="boot-log"></div>
+
+<!-- ── controls hint ───────────────────────────────────────── -->
+<div id="hint">
+  ← → / A D &nbsp; march<br>
+  SHIFT &nbsp;&nbsp;&nbsp;&nbsp; sprint<br>
+  SPACE &nbsp;&nbsp;&nbsp;&nbsp; re-boot<br>
+  CLICK &nbsp;&nbsp;&nbsp;&nbsp; tear web
+</div>
+
+<!-- scanline overlay -->
+<div id="scanlines"></div>
+
+<!-- ── Socket.IO CDN ───────────────────────────────────────── -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+//  MMUKO Holographic Interface — main.js (inline)
+//  Trilateral Consensus Cybernetic Feedback System
+//  3-Layer Parallax: Background · Midground · Foreground (player)
+// ════════════════════════════════════════════════════════════════════
+
+"use strict";
+
+// ── canvas context refs ──────────────────────────────────────────
+const cBg     = document.getElementById("c-bg");
+const cMid    = document.getElementById("c-mid");
+const cFg     = document.getElementById("c-fg");
+const cCobweb = document.getElementById("c-cobweb");
+const cHud    = document.getElementById("c-hud");
+
+let W = window.innerWidth, H = window.innerHeight;
+
+function resizeAll() {
+  W = window.innerWidth; H = window.innerHeight;
+  [cBg, cMid, cFg, cCobweb, cHud].forEach(c => {
+    c.width  = W;
+    c.height = H;
+  });
+  player.groundY = Math.round(H * 0.74);
+  rebuildStars();
+  rebuildCobwebs();
+}
+const gBg  = cBg.getContext("2d");
+const gMid = cMid.getContext("2d");
+const gFg  = cFg.getContext("2d");
+const gWeb = cCobweb.getContext("2d", { willReadFrequently: true });
+const gHud = cHud.getContext("2d");
+
+// ── MMUKO state ──────────────────────────────────────────────────
+const mmuko = {
+  bootStatus: "INIT",
+  tripartite: {
+    left:   { r:0, g:0, b:0, byte:0, primary:"N",  secondary:"S",  cubits:[] },
+    center: { r:0, g:0, b:0, byte:0, primary:"SW", secondary:"E",  cubits:[] },
+    right:  { r:0, g:0, b:0, byte:0, primary:"E",  secondary:"W",  cubits:[] }
+  },
+  latticeActive: "bot",
+  pixelBuffer: null,   // 8×8 grid from camera
+};
+
+// ── player / world ───────────────────────────────────────────────
+const player = {
+  worldX: 0,
+  screenX: 0,          // computed each frame
+  groundY: Math.round(H * 0.74),
+  facing: 1,           // 1=right, -1=left
+  moving: false,
+  walkFrame: 0,
+  speed: 3,
+};
+resizeAll();
+window.addEventListener("resize", resizeAll);
+
+// parallax multipliers
+const PAR_BG  = 0.18;
+const PAR_MID = 0.48;
+const PAR_FG  = 1.00;
+
+// ── input ────────────────────────────────────────────────────────
+const KEYS = {};
+document.addEventListener("keydown", e => {
+  KEYS[e.code] = true;
+  if (e.code === "Space") { e.preventDefault(); triggerBoot(); }
+});
+document.addEventListener("keyup", e => { KEYS[e.code] = false; });
+
+// ── stars (background) ───────────────────────────────────────────
+let stars = [];
+function rebuildStars() {
+  stars = Array.from({length:160}, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H * 0.62,
+    r: Math.random() * 1.4 + 0.3,
+    phase: Math.random() * Math.PI * 2,
+  }));
+}
+rebuildStars();
+
+// ── sprite images ────────────────────────────────────────────────
+const treeImg   = new Image(); treeImg.src   = "assets/trees/tree.png";
+const treeBgImg = new Image(); treeBgImg.src = "assets/trees/tree_bg.png";
+// Sprite-sheet row: AnimatedTreeFree — expected at assets/trees/tree_row.png
+const treeRowImg = new Image(); treeRowImg.src = "assets/trees/tree_row.png";
+let treeRowLoaded = false;
+treeRowImg.onload = () => { treeRowLoaded = true; };
+
+// ── world tile objects ───────────────────────────────────────────
+function makeTiles(count, range, types) {
+  const step = range * 2 / count;
+  return Array.from({length:count}, (_, i) => ({
+    wx: -range + i * step + (Math.random()-0.5) * step * 0.4,
+    scale: 0.65 + Math.random() * 0.6,
+    type: types[Math.floor(Math.random() * types.length)],
+    phase: Math.random() * Math.PI * 2,
+  }));
+}
+const BG_TILES  = makeTiles(28, 6000, ["tree-sm"]);
+const MID_TILES = makeTiles(18, 4000, ["tree","lamp","rock","log","cactus"]);
+const FG_TILES  = makeTiles(10, 2000, ["rock","log","lamp"]);
+
+// ─────────────────────────────────────────────────────────────────
+// DRAWING — background layer
+// ─────────────────────────────────────────────────────────────────
+
+function drawBackground(bgOff) {
+  gBg.clearRect(0, 0, W, H);
+
+  // sky
+  const sky = gBg.createLinearGradient(0, 0, 0, H * 0.72);
+  sky.addColorStop(0,   "#06000f");
+  sky.addColorStop(0.5, "#0c0020");
+  sky.addColorStop(1,   "#150030");
+  gBg.fillStyle = sky;
+  gBg.fillRect(0, 0, W, H * 0.72);
+
+  // stars
+  const t = Date.now() * 0.001;
+  stars.forEach(s => {
+    const a = 0.3 + 0.5 * (Math.sin(t * 0.8 + s.phase) * 0.5 + 0.5);
+    gBg.beginPath();
+    gBg.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    gBg.fillStyle = `rgba(255,255,255,${a.toFixed(2)})`;
+    gBg.fill();
+  });
+
+  // distant (bg) trees
+  drawTreeRow(gBg, bgOff, H * 0.60, 0.28, "#4a3010", "#3a2508");
+
+  // ground
+  const gnd = gBg.createLinearGradient(0, H * 0.72, 0, H);
+  gnd.addColorStop(0, "#0a1a08");
+  gnd.addColorStop(1, "#040a04");
+  gBg.fillStyle = gnd;
+  gBg.fillRect(0, H * 0.72, W, H * 0.28);
+
+  // ground glow line
+  gBg.strokeStyle = "rgba(0,200,60,0.15)";
+  gBg.lineWidth = 1;
+  gBg.beginPath(); gBg.moveTo(0, H * 0.72); gBg.lineTo(W, H * 0.72); gBg.stroke();
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DRAWING — midground layer
+// ─────────────────────────────────────────────────────────────────
+
+function drawMidground(midOff) {
+  gMid.clearRect(0, 0, W, H);
+
+  // mid trees
+  drawTreeRow(gMid, midOff, H * 0.67, 0.55, "#5a3a10", "#4a2e08");
+
+  // tile objects
+  MID_TILES.forEach(obj => {
+    const sx = obj.wx - midOff;
+    if (sx < -120 || sx > W + 120) return;
+    drawProp(gMid, sx, player.groundY, obj.type, obj.scale * 0.75, obj.phase);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DRAWING — foreground layer
+// ─────────────────────────────────────────────────────────────────
+
+function drawForeground(fgOff) {
+  gFg.clearRect(0, 0, W, H);
+
+  // fg props
+  FG_TILES.forEach(obj => {
+    const sx = obj.wx - fgOff;
+    if (sx < -80 || sx > W + 80) return;
+    drawProp(gFg, sx, player.groundY, obj.type, obj.scale, obj.phase);
+  });
+
+  // player character
+  drawPlayer(gFg);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DRAWING — tree row (tiled)
+// ─────────────────────────────────────────────────────────────────
+
+function drawTreeRow(ctx, offset, baseY, scale, trunkCol, foliageCol) {
+  const spacing = Math.round(80 * scale);
+  const treeW   = Math.round(52 * scale);
+  const treeH   = Math.round(90 * scale);
+  const t       = Date.now() * 0.001;
+
+  // how many we need plus one extra on each side
+  const visible = Math.ceil(W / spacing) + 4;
+  const phase   = ((offset % spacing) + spacing) % spacing;
+
+  for (let i = 0; i < visible; i++) {
+    const sx = i * spacing - phase;
+    if (sx + treeW < -10 || sx > W + 10) continue;
+
+    if (treeRowLoaded) {
+      // AnimatedTreeFree sprite row: 14 frames wide
+      const FRAMES = 14;
+      const fw = treeRowImg.naturalWidth  / FRAMES;
+      const fh = treeRowImg.naturalHeight;
+      const frame = Math.floor(t * 6) % FRAMES;
+      ctx.drawImage(treeRowImg,
+        frame * fw, 0, fw, fh,
+        sx, baseY - treeH, treeW, treeH
+      );
+    } else {
+      const sway = Math.sin(t * 0.6 + sx * 0.012) * (4 * scale);
+      const cx   = sx + treeW / 2;
+
+      // trunk
+      ctx.fillStyle = trunkCol;
+      ctx.fillRect(cx - treeW * 0.12, baseY - treeH * 0.38, treeW * 0.24, treeH * 0.38);
+
+      // foliage – two triangular layers
+      [[1.0, 0.38, 0.6], [0.75, 0.28, 0.5]].forEach(([top, bot, w]) => {
+        ctx.fillStyle = foliageCol;
+        ctx.beginPath();
+        ctx.moveTo(cx + sway,               baseY - treeH * top);
+        ctx.lineTo(cx - treeW * w + sway * 0.5, baseY - treeH * bot);
+        ctx.lineTo(cx + treeW * w + sway * 0.5, baseY - treeH * bot);
+        ctx.closePath();
+        ctx.fill();
+      });
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DRAWING — environmental props
+// ─────────────────────────────────────────────────────────────────
+
+function drawProp(ctx, x, baseY, type, scale, phase) {
+  const h = 36 * scale;
+  const t = Date.now() * 0.001;
+
+  switch (type) {
+    case "lamp": {
+      const px = x, py = baseY;
+      ctx.strokeStyle = "#999"; ctx.lineWidth = 3 * scale; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py - h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px, py - h); ctx.lineTo(px + 14*scale, py - h); ctx.stroke();
+      ctx.beginPath(); ctx.arc(px + 14*scale, py - h, 4*scale, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(255,220,100,${0.7 + 0.2 * Math.sin(t + phase)})`;
+      ctx.fill();
+      const glow = ctx.createRadialGradient(px+14*scale, py-h, 0, px+14*scale, py-h, 28*scale);
+      glow.addColorStop(0, "rgba(255,210,80,0.12)");
+      glow.addColorStop(1, "rgba(255,210,80,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath(); ctx.arc(px+14*scale, py-h, 28*scale, 0, Math.PI*2); ctx.fill();
+      break;
+    }
+    case "rock": {
+      ctx.fillStyle = "#4a4a4a";
+      ctx.beginPath(); ctx.ellipse(x, baseY - h*0.3, h*0.65, h*0.28, 0, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#666";
+      ctx.beginPath(); ctx.ellipse(x-h*0.15, baseY-h*0.42, h*0.38, h*0.22, -0.3, 0, Math.PI*2); ctx.fill();
+      break;
+    }
+    case "log": {
+      ctx.fillStyle = "#5a3a1a";
+      ctx.fillRect(x - h, baseY - h*0.28, h*2, h*0.28);
+      ctx.strokeStyle = "#3a2410"; ctx.lineWidth = 1.5;
+      ctx.strokeRect(x - h, baseY - h*0.28, h*2, h*0.28);
+      for (let i = 1; i < 4; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x - h, baseY - h*0.28 + i*(h*0.28/4));
+        ctx.lineTo(x + h, baseY - h*0.28 + i*(h*0.28/4));
+        ctx.strokeStyle = "rgba(0,0,0,0.18)"; ctx.lineWidth = 1; ctx.stroke();
+      }
+      break;
+    }
+    case "cactus": {
+      ctx.fillStyle = "#1a6020";
+      const bw = 10 * scale;
+      ctx.fillRect(x - bw, baseY - h, bw*2, h);
+      ctx.fillRect(x + bw, baseY - h*0.62, bw*1.8, bw*1.2);
+      ctx.fillRect(x + bw*2.2, baseY - h*0.6, bw*0.9, h*0.28);
+      ctx.fillRect(x - bw*2.8, baseY - h*0.55, bw*1.8, bw*1.2);
+      ctx.fillRect(x - bw*3, baseY - h*0.53, bw*0.9, h*0.22);
+      break;
+    }
+    case "tree": {
+      // same as drawTreeRow but single tree
+      const sway = Math.sin(t*0.6 + x*0.01) * 3;
+      ctx.fillStyle = "#4a2e08";
+      ctx.fillRect(x - h*0.13, baseY - h, h*0.26, h);
+      ctx.fillStyle = "#5a3a12";
+      ctx.beginPath();
+      ctx.moveTo(x + sway, baseY - h*1.7);
+      ctx.lineTo(x - h*0.55 + sway*0.5, baseY - h);
+      ctx.lineTo(x + h*0.55 + sway*0.5, baseY - h);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x + sway, baseY - h*1.5);
+      ctx.lineTo(x - h*0.7 + sway*0.4, baseY - h*0.8);
+      ctx.lineTo(x + h*0.7 + sway*0.4, baseY - h*0.8);
+      ctx.closePath(); ctx.fill();
+      break;
+    }
+    case "tree-sm": {
+      const sway = Math.sin(t*0.5 + x*0.015) * 2;
+      const sh   = h * 0.6;
+      ctx.fillStyle = "#2e1c06";
+      ctx.fillRect(x - sh*0.1, baseY - sh, sh*0.2, sh);
+      ctx.fillStyle = "#3a2810";
+      ctx.beginPath();
+      ctx.moveTo(x + sway, baseY - sh*1.6);
+      ctx.lineTo(x - sh*0.5, baseY - sh);
+      ctx.lineTo(x + sh*0.5, baseY - sh);
+      ctx.closePath(); ctx.fill();
+      break;
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DRAWING — player character
+// ─────────────────────────────────────────────────────────────────
+
+function drawPlayer(ctx) {
+  const sc = 1.6;                   // scale
+  const wk = Math.sin(player.walkFrame * 0.38);
+  const lg = player.moving ? wk * 11 : 0;
+  const bob = player.moving ? Math.abs(wk) * 1.8 : 0;
+
+  // tripartite aura colour
+  const tr   = mmuko.tripartite.center;
+  const aurR = tr.r, aurG = tr.g, aurB = tr.b;
+
+  const px = player.screenX;
+  const py = player.groundY;
+
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.scale(player.facing, 1);
+
+  // shadow
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 16*sc, 4*sc, 0, 0, Math.PI*2);
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.fill();
+
+  // tripartite aura ring
+  ctx.beginPath();
+  ctx.arc(0, -40*sc + bob, 15*sc, 0, Math.PI*2);
+  ctx.strokeStyle = `rgba(${aurR},${aurG},${aurB},0.6)`;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // legs
+  ctx.lineCap = "round";
+  [[-3, lg], [3, -lg]].forEach(([ox, swing]) => {
+    ctx.strokeStyle = "#3a6a3a"; ctx.lineWidth = 4*sc;
+    ctx.beginPath();
+    ctx.moveTo(ox*sc, -14*sc);
+    ctx.lineTo(ox*sc + swing, 0);
+    ctx.stroke();
+    // boot
+    ctx.beginPath();
+    ctx.arc(ox*sc + swing, 0, 3*sc, 0, Math.PI*2);
+    ctx.fillStyle = "#2a2a2a"; ctx.fill();
+  });
+
+  // body
+  ctx.fillStyle = "#2a5c2a";
+  ctx.beginPath();
+  ctx.roundRect(-7*sc, -34*sc + bob, 14*sc, 20*sc, 3*sc);
+  ctx.fill();
+
+  // arms
+  [[-8, -1], [8, 1]].forEach(([ox, dir]) => {
+    ctx.strokeStyle = "#2a5c2a"; ctx.lineWidth = 3*sc;
+    ctx.beginPath();
+    ctx.moveTo(ox*sc, -30*sc + bob);
+    ctx.lineTo((ox + dir * 6)*sc, -21*sc + bob + dir * (player.moving ? wk*7 : 0));
+    ctx.stroke();
+  });
+
+  // head
+  ctx.beginPath();
+  ctx.arc(0, -41*sc + bob, 8*sc, 0, Math.PI*2);
+  ctx.fillStyle = "#c89060"; ctx.fill();
+
+  // eyes
+  ctx.fillStyle = "#111";
+  ctx.fillRect(2*sc, -44*sc + bob, 3*sc, 2.5*sc);
+
+  // MMUKO pixel-buffer face display (8×8 grid mapped to head)
+  if (mmuko.pixelBuffer && mmuko.pixelBuffer.grid_8x8) {
+    const g8   = mmuko.pixelBuffer.grid_8x8;
+    const cell = 1.8 * sc;
+    const ox   = -3.6*sc, oy = -44.5*sc + bob;
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const lum = g8[row * 8 + col];
+        ctx.fillStyle = `rgba(${lum},${lum},${lum},0.18)`;
+        ctx.fillRect(ox + col*cell, oy + row*cell, cell, cell);
+      }
+    }
+  }
+
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DRAWING — HUD canvas overlay
+// ─────────────────────────────────────────────────────────────────
+
+function drawHUD() {
+  gHud.clearRect(0, 0, W, H);
+
+  const t = Date.now() * 0.001;
+
+  // -- scan pulse line
+  const scanY = ((t * 130) % H + H) % H;
+  gHud.fillStyle = "rgba(0,255,255,0.018)";
+  gHud.fillRect(0, scanY, W, 2);
+
+  // -- perspective ground grid
+  drawGroundGrid();
+
+  // -- world position readout
+  gHud.fillStyle = "rgba(0,255,100,0.35)";
+  gHud.font = "9px monospace";
+  gHud.textAlign = "left";
+  gHud.fillText(`WORLD·X : ${Math.round(player.worldX)}`, 10, H - 155);
+  gHud.fillText(`LAYER   : FOREGROUND`, 10, H - 144);
+}
+
+function drawGroundGrid() {
+  const gY  = player.groundY;
+  const gsp = 100;
+  const off = ((player.worldX * PAR_FG) % gsp + gsp) % gsp;
+
+  gHud.lineWidth = 1;
+  for (let sx = -off; sx < W + gsp; sx += gsp) {
+    gHud.strokeStyle = "rgba(0,255,80,0.06)";
+    gHud.beginPath(); gHud.moveTo(sx, gY); gHud.lineTo(sx, H); gHud.stroke();
+  }
+  for (let i = 0; i < 6; i++) {
+    const ry = gY + i * ((H - gY) / 6);
+    gHud.strokeStyle = `rgba(0,255,80,${0.03 + i * 0.015})`;
+    gHud.beginPath(); gHud.moveTo(0, ry); gHud.lineTo(W, ry); gHud.stroke();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DRAWING — mini HUD widgets
+// ─────────────────────────────────────────────────────────────────
+
+function drawCubitRing() {
+  const cv  = document.getElementById("c-cubit");
+  const ctx = cv.getContext("2d");
+  const cx  = cv.width / 2, cy = cv.height / 2, r = 30;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+
+  const DIRS   = ["N","NE","E","SE","S","SW","W","NW"];
+  const COLORS = { UP:"#0f0", DOWN:"#f44", CHARM:"#0ff", STRANGE:"#f0f", LEFT:"#ff0", RIGHT:"#fa0" };
+  const data   = mmuko.tripartite.center;
+
+  DIRS.forEach((d, i) => {
+    const ang = (i / 8) * Math.PI * 2 - Math.PI / 2;
+    const nx  = cx + Math.cos(ang) * r;
+    const ny  = cy + Math.sin(ang) * r;
+    const cb  = data.cubits && data.cubits[i];
+    const col = cb ? (COLORS[cb.state] || "#888") : "#444";
+
+    ctx.strokeStyle = cb && cb.value ? "rgba(0,255,255,0.4)" : "rgba(0,255,255,0.1)";
+    ctx.lineWidth   = 1;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(nx, ny); ctx.stroke();
+
+    ctx.beginPath(); ctx.arc(nx, ny, 4, 0, Math.PI*2);
+    ctx.fillStyle = col; ctx.fill();
+
+    ctx.fillStyle = "rgba(0,255,255,0.7)"; ctx.font = "6px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(d, cx + Math.cos(ang)*(r-11), cy + Math.sin(ang)*(r-11) + 2.5);
+  });
+
+  ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI*2);
+  ctx.fillStyle = "#0ff"; ctx.fill();
+}
+
+function drawLatticeL2() {
+  const cv  = document.getElementById("c-lattice");
+  const ctx = cv.getContext("2d");
+  const cw  = cv.width, ch = cv.height;
+  ctx.clearRect(0, 0, cw, ch);
+
+  const N = {
+    bot:   { x: cw/2,   y: ch-16, label:"(1,1)" },
+    left:  { x: 18,     y: ch/2,  label:"(1,2)" },
+    right: { x: cw-18,  y: ch/2,  label:"(2,1)" },
+    top:   { x: cw/2,   y: 16,    label:"(2,2)" },
+  };
+  const EDGES = [["bot","left"],["bot","right"],["left","top"],["right","top"]];
+
+  EDGES.forEach(([a, b]) => {
+    ctx.strokeStyle = "rgba(0,255,255,0.3)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(N[a].x, N[a].y); ctx.lineTo(N[b].x, N[b].y); ctx.stroke();
+  });
+
+  Object.entries(N).forEach(([id, node]) => {
+    const active = mmuko.latticeActive === id;
+    ctx.beginPath(); ctx.arc(node.x, node.y, active ? 7 : 4, 0, Math.PI*2);
+    ctx.fillStyle = active ? "#ff0" : "#0ff"; ctx.fill();
+    ctx.fillStyle = active ? "#ff0" : "rgba(0,255,255,0.7)";
+    ctx.font = "7px monospace"; ctx.textAlign = "center";
+    const ly = id === "top" ? node.y - 10 : node.y + 15;
+    ctx.fillText(node.label, node.x, ly);
+  });
+
+  ctx.fillStyle = "rgba(0,255,255,0.3)"; ctx.font = "8px monospace";
+  ctx.textAlign = "center"; ctx.fillText("(L₂, ≤)", cw/2, ch - 2);
+}
+
+function drawTripartiteCircles() {
+  const cv  = document.getElementById("c-tri");
+  const ctx = cv.getContext("2d");
+  const cw  = cv.width, ch = cv.height;
+  ctx.clearRect(0, 0, cw, ch);
+
+  const cx = cw / 2, cy = ch / 2, r = 26;
+  const zones = ["left","center","right"];
+  const angles = [-Math.PI/2, -Math.PI/2 + 2.094, -Math.PI/2 + 4.189];
+
+  zones.forEach((z, i) => {
+    const d   = mmuko.tripartite[z];
+    const ox  = cx + Math.cos(angles[i]) * 20;
+    const oy  = cy + Math.sin(angles[i]) * 20;
+
+    ctx.beginPath(); ctx.arc(ox, oy, r, 0, Math.PI*2);
+    ctx.fillStyle   = `rgba(${d.r},${d.g},${d.b},0.18)`;
+    ctx.strokeStyle = `rgba(${d.r},${d.g},${d.b},0.55)`;
+    ctx.lineWidth   = 1.2;
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = `rgba(${d.r},${d.g},${d.b},0.85)`;
+    ctx.font = "7px monospace"; ctx.textAlign = "center";
+    ctx.fillText(z.slice(0,3).toUpperCase(), ox, oy + 3);
+  });
+
+  // consensus intersection dot
+  ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI*2);
+  ctx.fillStyle = "#fff"; ctx.globalAlpha = 0.4; ctx.fill(); ctx.globalAlpha = 1;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// COBWEB PHYSICS
+// ─────────────────────────────────────────────────────────────────
+
+const GRAVITY   = { x: 0, y: 0.45 };
+const DAMPING   = 0.991;
+const TEAR_DIST = 48;
+const INTERACT  = 12;
+
+class Vec2 {
+  constructor(x, y) { this.x = x; this.y = y; }
+  clone()    { return new Vec2(this.x, this.y); }
+  add(v)     { this.x += v.x; this.y += v.y; return this; }
+  sub(v)     { this.x -= v.x; this.y -= v.y; return this; }
+  scale(s)   { this.x *= s;   this.y *= s;   return this; }
+  mag()      { return Math.sqrt(this.x*this.x + this.y*this.y); }
+}
+
+class WebPoint {
+  constructor(x, y, pinned) {
+    this.pos  = new Vec2(x, y);
+    this.prev = new Vec2(x, y);
+    this.pinned   = !!pinned;
+    this.dragging = false;
+  }
+  update() {
+    if (this.pinned || this.dragging) return;
+    const vel = this.pos.clone().sub(this.prev).scale(DAMPING);
+    this.prev = this.pos.clone();
+    this.pos.add(vel).add(new Vec2(GRAVITY.x, GRAVITY.y));
+  }
+}
+
+class WebLink {
+  constructor(a, b) {
+    this.a    = a; this.b = b;
+    this.rest = a.pos.clone().sub(b.pos).mag();
+    this.torn = false;
+  }
+  solve() {
+    if (this.torn) return;
+    const d    = this.a.pos.clone().sub(this.b.pos);
+    const dist = d.mag();
+    if (dist === 0) return;
+    if (dist > TEAR_DIST) { this.torn = true; return; }
+    const delta = d.scale((this.rest - dist) / dist / 2);
+    if (!this.a.pinned) this.a.pos.add(delta);
+    if (!this.b.pinned) this.b.pos.sub(delta);
+  }
+}
+
+class Cobweb {
+  constructor(x, y, radius, nPts, nRings) {
+    this.x = x; this.y = y;
+    this.r = radius;
+    this.nP = Math.max(5, Math.round(nPts));
+    this.nR = Math.max(2, Math.round(nRings));
+    this.pts   = [];
+    this.links = [];
+    this.build();
+  }
+  build() {
+    this.pts = []; this.links = [];
+    for (let j = 0; j <= this.nR; j++) {
+      const ring = [];
+      const sc   = 1 + j * 0.42;
+      for (let i = 0; i < this.nP; i++) {
+        const ang = (i / this.nP) * Math.PI * 2;
+        const px  = this.x + Math.cos(ang) * this.r * sc;
+        const py  = this.y + Math.sin(ang) * this.r * sc;
+        ring.push(new WebPoint(px, py, j % 3 === 0));
+      }
+      this.pts.push(ring);
+    }
+    for (let j = 0; j <= this.nR; j++) {
+      const ring = this.pts[j];
+      for (let i = 0; i < this.nP; i++) {
+        this.links.push(new WebLink(ring[i], ring[(i + 1) % this.nP]));
+        if (j > 0) this.links.push(new WebLink(this.pts[j-1][i], ring[i]));
+      }
+    }
+  }
+  update() {
+    this.pts.flat().forEach(p => p.update());
+    this.links.forEach(l => l.solve());
+  }
+  draw(ctx) {
+    ctx.strokeStyle = "rgba(200,200,220,0.25)";
+    ctx.lineWidth   = 0.6;
+    this.links.forEach(l => {
+      if (l.torn) return;
+      ctx.beginPath();
+      ctx.moveTo(l.a.pos.x, l.a.pos.y);
+      ctx.lineTo(l.b.pos.x, l.b.pos.y);
+      ctx.stroke();
+    });
+  }
+}
+
+let cobwebs = [];
+function rebuildCobwebs() {
+  cobwebs = [
+    new Cobweb(0,   0,   14, 10, 7),
+    new Cobweb(W,   0,   14, 10, 7),
+    new Cobweb(W/2, 0,   11,  8, 5),
+  ];
+}
+rebuildCobwebs();
+
+// cobweb interaction
+let webDrag = null;
+cCobweb.addEventListener("mousedown", e => {
+  const r = cCobweb.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  cobwebs.forEach(cw => cw.pts.flat().forEach(p => {
+    if (!p.pinned && Math.hypot(p.pos.x-mx, p.pos.y-my) < INTERACT) {
+      webDrag = p; p.dragging = true;
+    }
+  }));
+});
+cCobweb.addEventListener("mousemove", e => {
+  if (!webDrag) return;
+  const r = cCobweb.getBoundingClientRect();
+  webDrag.pos.x = e.clientX - r.left;
+  webDrag.pos.y = e.clientY - r.top;
+});
+cCobweb.addEventListener("mouseup", () => {
+  if (webDrag) { webDrag.dragging = false; webDrag = null; }
+});
+cCobweb.addEventListener("click", e => {
+  const r  = cCobweb.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  cobwebs.forEach(cw => cw.links.forEach(l => {
+    if (l.torn) return;
+    const midX = (l.a.pos.x + l.b.pos.x) / 2;
+    const midY = (l.a.pos.y + l.b.pos.y) / 2;
+    if (Math.hypot(midX - mx, midY - my) < INTERACT) l.torn = true;
+  }));
+});
+
+function drawCobwebs() {
+  gWeb.clearRect(0, 0, W, H);
+  cobwebs.forEach(cw => { cw.update(); cw.draw(gWeb); });
+}
+
+// ─────────────────────────────────────────────────────────────────
+// MAIN LOOP
+// ─────────────────────────────────────────────────────────────────
+
+function updatePlayer() {
+  player.moving = false;
+  const speed = player.speed * ((KEYS["ShiftLeft"] || KEYS["ShiftRight"]) ? 2.2 : 1);
+
+  if (KEYS["ArrowLeft"]  || KEYS["KeyA"]) { player.worldX -= speed; player.facing = -1; player.moving = true; }
+  if (KEYS["ArrowRight"] || KEYS["KeyD"]) { player.worldX += speed; player.facing  = 1; player.moving = true; }
+
+  if (player.moving) player.walkFrame++;
+
+  // player stays centered on screen with a slight lean toward direction
+  const lean = (KEYS["ArrowRight"] || KEYS["KeyD"]) ?  8
+             : (KEYS["ArrowLeft"]  || KEYS["KeyA"]) ? -8 : 0;
+  player.screenX = W / 2 + lean;
+
+  // update lattice node based on world position
+  const nodes = ["bot","left","right","top"];
+  mmuko.latticeActive = nodes[Math.abs(Math.floor(player.worldX / 280)) % 4];
+
+  // update DOM readouts
+  document.getElementById("world-x").textContent    = Math.round(player.worldX);
+  document.getElementById("lattice-node").textContent = mmuko.latticeActive.toUpperCase();
+}
+
+function gameLoop() {
+  updatePlayer();
+
+  const bgOff  = player.worldX * PAR_BG;
+  const midOff = player.worldX * PAR_MID;
+  const fgOff  = player.worldX * PAR_FG;
+
+  drawBackground(bgOff);
+  drawMidground(midOff);
+  drawForeground(fgOff);
+  drawCobwebs();
+  drawHUD();
+
+  // refresh mini-widget canvases (throttle to ~15 fps for perf)
+  if ((Date.now() % 67) < 20) {
+    drawCubitRing();
+    drawLatticeL2();
+    drawTripartiteCircles();
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// UI UPDATES
+// ─────────────────────────────────────────────────────────────────
+
+function setBootStatus(text, color) {
+  const el = document.getElementById("boot-status");
+  if (el) { el.textContent = text; el.style.color = color; }
+}
+
+function appendLog(msg) {
+  const log = document.getElementById("boot-log");
+  if (!log) return;
+  const d = document.createElement("div");
+  d.textContent = msg;
+  log.appendChild(d);
+  while (log.children.length > 22) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+}
+
+function updateTripartite(data) {
+  if (!data) return;
+  Object.assign(mmuko.tripartite, data);
+
+  // DOM bars
+  if (data.left)   { document.getElementById("bar-lr").style.width = (data.left.r   / 255 * 100) + "%"; }
+  if (data.center) {
+    document.getElementById("bar-cg").style.width = (data.center.g / 255 * 100) + "%";
+    document.getElementById("dir-pri").textContent = data.center.primary   || "--";
+    document.getElementById("dir-sec").textContent = data.center.secondary || "--";
+    document.getElementById("bar-byte").textContent = "0x" + (data.center.byte >>> 0).toString(16).toUpperCase().padStart(2,"0");
+  }
+  if (data.right)  { document.getElementById("bar-rb").style.width = (data.right.b  / 255 * 100) + "%"; }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// WEBSOCKET / STANDALONE
+// ─────────────────────────────────────────────────────────────────
+
+let sock = null;
+
+function triggerBoot() {
+  if (sock && sock.connected) {
+    sock.emit("boot_mmuko", { bytes: [0x00, 0xFF, 0x2A], bases: [12, 6, 8] });
+  }
+}
+
+function initSocket() {
+  try {
+    sock = io("http://localhost:5000", { timeout: 2500, reconnection: false });
+
+    sock.on("connect", () => {
+      setBootStatus("CONNECTED", "#0ff");
+      appendLog("[MMUKO] Server connected — starting camera stream");
+      triggerBoot();
+    });
+
+    sock.on("connect_error", () => {
+      appendLog("[MMUKO] No server found — running standalone synthetic mode");
+      startStandalone();
+    });
+
+    sock.on("disconnect", () => {
+      setBootStatus("OFFLINE", "#888");
+      appendLog("[MMUKO] Server disconnected");
+    });
+
+    sock.on("mmuko_frame", payload => {
+      updateTripartite(payload.tripartite);
+      if (payload.pixel_buffer) mmuko.pixelBuffer = payload.pixel_buffer;
+      if (payload.frame) {
+        document.getElementById("cam-img").src = payload.frame;
+      }
+      document.getElementById("cam-synth").style.display =
+        payload.synthetic ? "block" : "none";
+    });
+
+    sock.on("boot_result", res => {
+      setBootStatus(res.status ? "BOOT_OK" : "BOOT_FAIL",
+                    res.status ? "#0f0"    : "#f44");
+      (res.logs || []).forEach(l => appendLog(l));
+      appendLog(`[MMUKO] ${res.status ? "✓" : "✗"} Boot — ${res.reason || "complete"}`);
+    });
+
+    sock.on("lattice_result", res => {
+      if (res.result) {
+        appendLog(`[LATTICE] ${res.op} (${res.a}) ∧ (${res.b}) = (${res.result})`);
+      }
+    });
+
+  } catch (e) {
+    appendLog("[MMUKO] Socket.IO load failed — running standalone");
+    startStandalone();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// STANDALONE SYNTHETIC MODE
+// ─────────────────────────────────────────────────────────────────
+
+function startStandalone() {
+  setBootStatus("STANDALONE", "#ff0");
+  appendLog("[MMUKO] Trilateral synthetic oscillator active");
+
+  let t = 0;
+  const DIR8 = ["N","NE","E","SE","S","SW","W","NW"];
+  const STA4  = ["UP","DOWN","CHARM","STRANGE"];
+
+  function synZone(phase) {
+    const r = Math.round((Math.sin(t + phase) + 1) * 127);
+    const g = Math.round((Math.sin(t + phase + 2.094) + 1) * 127);
+    const b = Math.round((Math.sin(t + phase + 4.189) + 1) * 127);
+    const byte = (r ^ g ^ b) & 0xFF;
+    return {
+      r, g, b, byte,
+      primary:   DIR8[Math.floor(byte / 32)],
+      secondary: DIR8[(Math.floor(byte / 32) + 4) % 8],
+      cubits: Array.from({length:8}, (_, i) => ({
+        index: i,
+        value: (byte >> i) & 1,
+        direction: DIR8[i],
+        state: STA4[((byte >> i) & 1) + ((byte >> ((i+1)%8)) & 1)],
+      })),
+    };
+  }
+
+  // synthetic 8×8 pixel buffer
+  function synPixBuf() {
+    const grid = Array.from({length:64}, (_, i) =>
+      Math.round((Math.sin(t*2 + i*0.4) * 0.5 + 0.5) * 255)
+    );
+    const fold = grid.reduce((a, v) => a ^ v, 0) & 0xFF;
+    return { fold_byte: fold, hex: "0x"+fold.toString(16).toUpperCase().padStart(2,"0"), grid_8x8: grid };
+  }
+
+  const standaloneLoop = () => {
+    updateTripartite({
+      left:   synZone(0),
+      center: synZone(2.094),
+      right:  synZone(4.189),
+    });
+    mmuko.pixelBuffer = synPixBuf();
+    t += 0.04;
+  };
+  setInterval(standaloneLoop, 33);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// BOOT
+// ─────────────────────────────────────────────────────────────────
+
+appendLog("[MMUKO] System initializing…");
+appendLog("[MMUKO] Trilateral consensus lattice loading…");
+setBootStatus("INIT", "#ff0");
+drawLatticeL2();
+drawCubitRing();
+drawTripartiteCircles();
+initSocket();
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>

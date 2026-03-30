@@ -1,0 +1,17 @@
+# MMUKO Holographic Interface — Python dependencies
+# Install with:  pip install -r requirements.txt
+
+# Web server + WebSocket bridge
+flask>=3.0.0
+flask-socketio>=5.3.6
+python-socketio>=5.11.0
+python-engineio>=4.9.0
+
+# WSGI server (production-safe alternative to Werkzeug dev server)
+eventlet>=0.35.2
+
+# OpenCV — camera capture + pixel buffer processing
+opencv-python>=4.9.0.80
+
+# Numerical helpers (used by camera pixel-buffer stats)
+numpy>=1.26.0
