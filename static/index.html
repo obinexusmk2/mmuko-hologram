@@ -251,8 +251,6 @@ const player = {
   walkFrame: 0,
   speed: 3,
 };
-resizeAll();
-window.addEventListener("resize", resizeAll);
 
 // parallax multipliers
 const PAR_BG  = 0.18;
@@ -856,6 +854,8 @@ function rebuildCobwebs() {
   ];
 }
 rebuildCobwebs();
+resizeAll();
+window.addEventListener("resize", resizeAll);
 
 // cobweb interaction
 let webDrag = null;
